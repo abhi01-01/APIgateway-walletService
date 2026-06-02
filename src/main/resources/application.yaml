@@ -1,0 +1,95 @@
+spring:
+  config:
+    import: optional:file:.env[.properties]
+  application:
+    name: api-gateway
+  data:
+    redis:
+      host: localhost           # Phase-1 (Active feature development)
+#      host: wallet-redis-d     # Phase-2 (Full Containerization)
+      port: 6379
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            # Route 1: Auth Endpoints (Verify OTP, Login, etc.)
+            - id: wallet-auth-route
+              uri: http://localhost:8081            # Phase-1 (Active feature development)
+#                  uri: http://wallet-service:8081     # Notice we will move WalletService to 8081 - Phase-2 (Full Containerization)
+              predicates:
+                - Path=/api/v1/auth/**
+              filters:
+                - name: CustomLuaRateLimiterFilter
+                  args:
+                    keyPrefix: "rate_limit:auth:"
+                    capacity: 3
+                    replenishRate: 1
+                - AuthenticationFilter
+                - name: CircuitBreaker
+                  args:
+                    name: walletServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/walletService
+            # Route 2: Payment Endpoints
+            - id: wallet-payment-route
+              uri: http://localhost:8081            # Phase-1 (Active feature development)
+#                  uri: http://wallet-service:8081      # Phase-2 (Full Containerization)
+              predicates:
+                - Path=/api/v1/payments/**
+              filters:
+                - name: CustomLuaRateLimiterFilter
+                  args:
+                    keyPrefix: "rate_limit:payments:"
+                    capacity: 3
+                    replenishRate: 1
+                - AuthenticationFilter
+                - name: CircuitBreaker
+                  args:
+                    name: walletServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/walletService
+            # Route 3. Wallet Core Subsystem
+            - id: wallet-domain-route
+              uri: http://localhost:8081              # Phase-1 (Active feature development)
+#                  uri: http://wallet-service:8081        # Phase-2 (Full Containerization)
+              predicates:
+                - Path=/api/v1/wallets/**
+              filters:
+                - name: CustomLuaRateLimiterFilter
+                  args:
+                    keyPrefix: "rate_limit:wallets:"
+                    capacity: 3
+                    replenishRate: 1
+                - AuthenticationFilter
+                - name: CircuitBreaker
+                  args:
+                    name: walletServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/walletService
+            # Route 4. Webhook Ingestion (Bypass Rate Limiter)
+            - id: wallet-webhook-route
+              uri: http://localhost:8081              # Phase-1 (Active feature development)
+#                  uri: http://wallet-service:8081        # Phase-2 (Full Containerization)
+              predicates:
+                - Path=/api/v1/webhooks/**
+            # Route 5. The OpenAPI Data Pipeline
+            - id: wallet-openapi-route
+              uri: http://localhost:8081
+              predicates:
+                - Path=/wallet-service/v3/api-docs/**
+              filters:
+                # Strips the /wallet-service/ namespace before forwarding to 8081
+                - StripPrefix=1
+springdoc:
+#  api-docs:
+#    enabled: false    # Kills the Gateway's native empty spec
+  #  use-management-port: true # Forces Swagger UI to run only on 8082
+  swagger-ui:
+    path: /swagger-ui.html
+    # Instructs the UI on 8082 to pull the JSON through the proxy on 8080
+    urls:
+      - name: wallet-service
+        url: /wallet-service/v3/api-docs
+
+application:
+  security:
+    jwt:
+      secret-key: ${JWT_SECRET}
