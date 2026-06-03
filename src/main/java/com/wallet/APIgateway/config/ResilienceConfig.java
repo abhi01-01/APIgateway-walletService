@@ -3,11 +3,9 @@ package com.wallet.APIgateway.config;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.timelimiter.TimeLimiterConfig;
 import org.springframework.cloud.circuitbreaker.resilience4j.ReactiveResilience4JCircuitBreakerFactory;
-import org.springframework.cloud.circuitbreaker.resilience4j.Resilience4JConfigBuilder;
 import org.springframework.cloud.client.circuitbreaker.Customizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.client.RestClient;
 
 import java.time.Duration;
 
@@ -19,7 +17,7 @@ public class ResilienceConfig {
         return factory -> factory.configure(builder -> builder
                 // 1. Kills the 1-second default, enforces 3 seconds
                 .timeLimiterConfig(TimeLimiterConfig.custom()
-                        .timeoutDuration(Duration.ofSeconds(3))
+                        .timeoutDuration(Duration.ofSeconds(5))
                         .build())
                 // 2. Enforces your specific threshold geometry
                 .circuitBreakerConfig(CircuitBreakerConfig.custom()
@@ -30,4 +28,5 @@ public class ResilienceConfig {
                         .build())
                 .build(), "walletServiceCircuitBreaker");      // Binds directly to the YAML ID
     }
+
 }
