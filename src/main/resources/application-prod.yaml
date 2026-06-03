@@ -1,78 +1,83 @@
 spring:
   application:
     name: api-gateway
+  config:
+    import: optional:file:.env[.properties]
   data:
     redis:
       # Injected by Docker network or orchestrator, defaults to local container name
       host: ${REDIS_HOST:wallet-redis-d}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
+      ssl:
+        enabled: true     # Render Redis external connections require TLS/SSL encryption
   cloud:
     gateway:
-      routes:
-        # Route 1: Auth Endpoints (Publicly accessible, bypasses JWT via RouteValidator)
-        - id: wallet-auth-route
-          uri: ${WALLET_SERVICE_URL:http://wallet-service:8081}
-          predicates:
-            - Path=/api/v1/auth/**
-          filters:
-            - name: CustomLuaRateLimiterFilter
-              args:
-                keyPrefix: "rate_limit:auth:"
-                capacity: 10 # Scaled up for production burst traffic
-                replenishRate: 5
-            - name: CircuitBreaker
-              args:
-                name: walletServiceCircuitBreaker
-                fallbackUri: forward:/fallback/walletService
-
-        # Route 2: Payment Endpoints (Secured)
-        - id: wallet-payment-route
-          uri: ${WALLET_SERVICE_URL:http://wallet-service:8081}
-          predicates:
-            - Path=/api/v1/payments/**
-          filters:
-            - AuthenticationFilter
-            - name: CustomLuaRateLimiterFilter
-              args:
-                keyPrefix: "rate_limit:payments:"
-                capacity: 5
-                replenishRate: 2
-            - name: CircuitBreaker
-              args:
-                name: walletServiceCircuitBreaker
-                fallbackUri: forward:/fallback/walletService
-
-        # Route 3: Wallet Core Subsystem (Secured)
-        - id: wallet-domain-route
-          uri: ${WALLET_SERVICE_URL:http://wallet-service:8081}
-          predicates:
-            - Path=/api/v1/wallets/**
-          filters:
-            - AuthenticationFilter
-            - name: CustomLuaRateLimiterFilter
-              args:
-                keyPrefix: "rate_limit:wallets:"
-                capacity: 15
-                replenishRate: 5
-            - name: CircuitBreaker
-              args:
-                name: walletServiceCircuitBreaker
-                fallbackUri: forward:/fallback/walletService
-
-        # Route 4: Webhook Ingestion (Bypasses JWT and Rate Limiting for gateway speed)
-        - id: wallet-webhook-route
-          uri: ${WALLET_SERVICE_URL:http://wallet-service:8081}
-          predicates:
-            - Path=/api/v1/webhooks/**
-
-        # Route 5: The OpenAPI Data Pipeline
-        - id: wallet-openapi-route
-          uri: ${WALLET_SERVICE_URL:http://wallet-service:8081}
-          predicates:
-            - Path=/wallet-service/v3/api-docs/**
-          filters:
-            - StripPrefix=1
+      server:
+        webflux:
+          # Automatically appends the secret token to EVERY outbound request to the internal service
+          default-filters:
+            - AddRequestHeader=X-Gateway-Token, ${GATEWAY_INTERNAL_SECRET:default-edge-secret-string-123}
+          routes:
+            # Route 1: Auth Endpoints (Publicly accessible, bypasses JWT via RouteValidator)
+            - id: wallet-auth-route
+              uri: ${WALLET_SERVICE_URL:http://wallet-service:8081}
+              predicates:
+                - Path=/api/v1/auth/**
+              filters:
+                - name: CustomLuaRateLimiterFilter
+                  args:
+                    keyPrefix: "rate_limit:auth:"
+                    capacity: 10 # Scaled up for production burst traffic
+                    replenishRate: 5
+                - name: CircuitBreaker
+                  args:
+                    name: walletServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/walletService
+            # Route 2: Payment Endpoints (Secured)
+            - id: wallet-payment-route
+              uri: ${WALLET_SERVICE_URL:http://wallet-service:8081}
+              predicates:
+                - Path=/api/v1/payments/**
+              filters:
+                - AuthenticationFilter
+                - name: CustomLuaRateLimiterFilter
+                  args:
+                    keyPrefix: "rate_limit:payments:"
+                    capacity: 5
+                    replenishRate: 2
+                - name: CircuitBreaker
+                  args:
+                    name: walletServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/walletService
+            # Route 3: Wallet Core Subsystem (Secured)
+            - id: wallet-domain-route
+              uri: ${WALLET_SERVICE_URL:http://wallet-service:8081}
+              predicates:
+                - Path=/api/v1/wallets/**
+              filters:
+                - AuthenticationFilter
+                - name: CustomLuaRateLimiterFilter
+                  args:
+                    keyPrefix: "rate_limit:wallets:"
+                    capacity: 15
+                    replenishRate: 5
+                - name: CircuitBreaker
+                  args:
+                    name: walletServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/walletService
+            # Route 4: Webhook Ingestion (Bypasses JWT and Rate Limiting for gateway speed)
+            - id: wallet-webhook-route
+              uri: ${WALLET_SERVICE_URL:http://wallet-service:8081}
+              predicates:
+                - Path=/api/v1/webhooks/**
+            # Route 5: The OpenAPI Data Pipeline
+            - id: wallet-openapi-route
+              uri: ${WALLET_SERVICE_URL:http://wallet-service:8081}
+              predicates:
+                - Path=/wallet-service/v3/api-docs/**
+              filters:
+                - StripPrefix=1
 application:
   security:
     jwt:
