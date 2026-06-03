@@ -7,6 +7,7 @@ import org.springframework.cloud.circuitbreaker.resilience4j.Resilience4JConfigB
 import org.springframework.cloud.client.circuitbreaker.Customizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.web.client.RestClient;
 
 import java.time.Duration;
 
@@ -15,7 +16,7 @@ public class ResilienceConfig {
 
     @Bean
     public Customizer<ReactiveResilience4JCircuitBreakerFactory> defaultCustomizer() {
-        return factory -> factory.configureDefault(id -> new Resilience4JConfigBuilder(id)
+        return factory -> factory.configure(builder -> builder
                 // 1. Kills the 1-second default, enforces 3 seconds
                 .timeLimiterConfig(TimeLimiterConfig.custom()
                         .timeoutDuration(Duration.ofSeconds(3))
@@ -27,6 +28,6 @@ public class ResilienceConfig {
                         .waitDurationInOpenState(Duration.ofSeconds(10))
                         .permittedNumberOfCallsInHalfOpenState(5)
                         .build())
-                .build());
+                .build(), "walletServiceCircuitBreaker");      // Binds directly to the YAML ID
     }
 }
