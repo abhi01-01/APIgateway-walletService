@@ -56,3 +56,9 @@ jobs:
             ${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }}
           cache-from: type=registry,ref=${{ env.DOCKER_IMAGE_NAME }}:buildcache
           cache-to: type=registry,ref=${{ env.DOCKER_IMAGE_NAME }}:buildcache,mode=max
+
+          # Continuous Deployment (Trigger Target)
+      # Notifies the server to pull the new 'latest' image and restart
+      - name: Trigger Production Deployment
+        run: |
+          curl -X POST ${{ secrets.DEPLOY_WEBHOOK_URL }}    
