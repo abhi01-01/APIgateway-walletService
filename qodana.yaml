@@ -36,8 +36,4 @@ projectJDK: "21" #(Applied in CI/CD pipeline)
 #    fresh: 70
 #    total: 50
 #Specify Qodana linter for analysis (Applied in CI/CD pipeline)
-linter: jetbrains/qodana-jvm:2026.1
-exclude:
-  - name: All
-    paths:
-      - pom.xml
+  qodana scan --image jetbrains/qodana-jvm:2026.1
