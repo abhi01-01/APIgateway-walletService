@@ -19,7 +19,7 @@ spring:
           default-filters:
             - AddRequestHeader=X-Gateway-Token, ${GATEWAY_INTERNAL_SECRET:default-edge-secret-string-123}
           routes:
-            # Route 1: Auth Endpoints (Publicly accessible, bypasses JWT via RouteValidator)
+            # Route 1: Auth Endpoints (Public by default, but teardown routes are secured by RouteValidator)
             - id: wallet-auth-route
               uri: ${WALLET_SERVICE_URL:http://wallet-service:8081}
               predicates:
@@ -30,6 +30,7 @@ spring:
                     keyPrefix: "rate_limit:auth:"
                     capacity: 10 # Scaled up for production burst traffic
                     replenishRate: 5
+                - AuthenticationFilter
                 - name: CircuitBreaker
                   args:
                     name: walletServiceCircuitBreaker
@@ -82,3 +83,6 @@ application:
   security:
     jwt:
       secret-key: ${JWT_SECRET}
+  rate-limit:
+    # Trust X-Forwarded-For only from known proxy or load-balancer source IPs.
+    trusted-proxies: ${TRUSTED_PROXY_CIDRS:}

@@ -94,6 +94,8 @@ application:
   security:
     jwt:
       secret-key: ${JWT_SECRET}
+  rate-limit:
+    trusted-proxies: ${TRUSTED_PROXY_CIDRS:}
 
 resilience4j:
   circuitbreaker:
