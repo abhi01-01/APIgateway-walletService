@@ -8,18 +8,15 @@ import org.springframework.cloud.gateway.filter.factory.AbstractGatewayFilterFac
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
-import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.server.reactive.ServerHttpRequest;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
-import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 
 @Slf4j
 @Component
@@ -31,10 +28,13 @@ public class CustomLuaRateLimiterFilter extends AbstractGatewayFilterFactory<Cus
 
     private final ReactiveStringRedisTemplate redisTemplate;
     private final DefaultRedisScript<Long> script;
+    private final ClientIpResolver clientIpResolver;
 
-    public CustomLuaRateLimiterFilter(ReactiveStringRedisTemplate redisTemplate) {
+    public CustomLuaRateLimiterFilter(ReactiveStringRedisTemplate redisTemplate,
+                                      ClientIpResolver clientIpResolver) {
         super(Config.class);
         this.redisTemplate = redisTemplate;
+        this.clientIpResolver = clientIpResolver;
 
         // Load the script into memory on Gateway startup
         this.script = new DefaultRedisScript<>();
@@ -52,7 +52,7 @@ public class CustomLuaRateLimiterFilter extends AbstractGatewayFilterFactory<Cus
             }
 
             // 1. Extract IP Address as the Key
-            String redisKey = config.getKeyPrefix() + resolveClientIp(exchange);
+            String redisKey = config.getKeyPrefix() + clientIpResolver.resolve(exchange);
             List<String> keys = Collections.singletonList(redisKey);
 
             // 2. Execute Lua Script Reactively (Non-Blocking)
@@ -100,19 +100,6 @@ public class CustomLuaRateLimiterFilter extends AbstractGatewayFilterFactory<Cus
         }
 
         return true;
-    }
-
-    private String resolveClientIp(ServerWebExchange exchange) {
-        ServerHttpRequest request = exchange.getRequest();
-        String forwardedFor = request.getHeaders().getFirst("X-Forwarded-For");
-
-        if (StringUtils.hasText(forwardedFor)) {
-            return forwardedFor.split(",")[0].trim();
-        }
-
-        return Optional.ofNullable(request.getRemoteAddress())
-                .map(remoteAddress -> remoteAddress.getAddress().getHostAddress())
-                .orElse("unknown");
     }
 
     @Setter
