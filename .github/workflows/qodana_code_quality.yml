@@ -3,38 +3,31 @@
 #               https://www.jetbrains.com/help/qodana/github.html               #
 #-------------------------------------------------------------------------------#
 
-name: Qodana
+name: Qodana Configuration Upload
+
 on:
-  workflow_dispatch:
-  pull_request:
   push:
+    branches: [ production ]
+  pull_request:
     branches:
-      - production
+  workflow_dispatch:
 
 jobs:
-  qodana:
+  upload-qodana-config:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-      checks: write
+
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
-      - name: 'Qodana Scan'
-        uses: JetBrains/qodana-action@v2026.1
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Qodana Configuration Uploader
         env:
-          QODANA_TOKEN: ${{ secrets.QODANA_TOKEN }}
-        with:
-          args: --baseline,qodana.sarif.json
-          # When pr-mode is set to true, Qodana analyzes only the files that have been changed
-          pr-mode: false
-          use-caches: true
-          post-pr-comment: true
-          use-annotations: true
-          # Upload Qodana results (SARIF, other artifacts, logs) as an artifact to the job
-          upload-result: false
-          # quick-fixes available in Ultimate and Ultimate Plus plans
-          push-fixes: 'none'
+          QODANA_CONFIGURATIONS_TOKEN: ${{ secrets.QODANA_CONFIGURATIONS_TOKEN }}
+        run: |
+          docker run --rm \
+            -v $(pwd):/workspace \
+            -w /workspace \
+            -e QODANA_CONFIGURATIONS_TOKEN=$QODANA_CONFIGURATIONS_TOKEN \
+            jetbrains/qodana-configuration-uploader:latest \
+            --global-configs-file qodana-global-configurations.yaml \
+            --qodana-host https://qodana.cloud
