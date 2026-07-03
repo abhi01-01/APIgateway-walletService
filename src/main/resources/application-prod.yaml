@@ -64,12 +64,28 @@ spring:
                   args:
                     name: walletServiceCircuitBreaker
                     fallbackUri: forward:/fallback/walletService
-            # Route 4: Webhook Ingestion (Bypasses JWT and Rate Limiting for gateway speed)
+            # Route 4. Admin Messaging / Kafka Observability APIs
+            - id: wallet-admin-messaging-route
+              uri: ${WALLET_SERVICE_URL:http://localhost:8081}
+              predicates:
+                - Path=/api/v1/admin/messaging/**
+              filters:
+                - name: CustomLuaRateLimiterFilter
+                  args:
+                    keyPrefix: "rate_limit:admin_messaging"
+                    capacity: 10
+                    replenishRate: 3
+                - AuthenticationFilter
+                - name: CircuitBreaker
+                  args:
+                    name: walletServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/walletService
+            # Route 5: Webhook Ingestion (Bypasses JWT and Rate Limiting for gateway speed)
             - id: wallet-webhook-route
               uri: ${WALLET_SERVICE_URL:http://wallet-service:8081}
               predicates:
                 - Path=/api/v1/webhooks/**
-            # Route 5: The OpenAPI Data Pipeline
+            # Route 6: The OpenAPI Data Pipeline
             - id: wallet-openapi-route
               uri: ${WALLET_SERVICE_URL:http://wallet-service:8081}
               predicates:
