@@ -15,9 +15,6 @@ spring:
     gateway:
       server:
         webflux:
-          # Automatically appends the secret token to EVERY outbound request to the internal service
-          default-filters:
-            - AddRequestHeader=X-Gateway-Token, ${GATEWAY_INTERNAL_SECRET:default-edge-secret-string-123}
           routes:
             # Route 1: Auth Endpoints (Public by default, but teardown routes are secured by RouteValidator)
             - id: wallet-auth-route

@@ -10,8 +10,8 @@ import org.springframework.web.server.ServerWebExchange;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
-import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 @Slf4j
 @Component
@@ -49,7 +49,7 @@ public class ClientIpResolver {
     }
 
     private Optional<String> extractFirstForwardedIp(String forwardedFor) {
-        return List.of(forwardedFor.split(",")).stream()
+        return Stream.of(forwardedFor.split(","))
                 .map(String::trim)
                 .filter(StringUtils::hasText)
                 .findFirst();
