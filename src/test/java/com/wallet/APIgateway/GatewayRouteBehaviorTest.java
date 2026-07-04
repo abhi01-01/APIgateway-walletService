@@ -137,4 +137,42 @@ class GatewayRouteBehaviorTest {
                 .isEqualTo("Wallet Service is currently degraded or experiencing high load. Please try again later.")
                 .jsonPath("$.error_code").isEqualTo("SERVICE_UNAVAILABLE");
     }
+
+    @Test
+    void adminMessagingRouteRequiresJwtAndReachesDownstreamWithIdentityHeaders() throws InterruptedException {
+        WALLET_SERVICE.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .setBody("{\"status\":\"admin-messaging-ok\"}"));
+
+        String token = GatewayIntegrationTestSupport.createToken("system-1", "SYSTEM", Duration.ofMinutes(5));
+
+        webTestClient.get()
+                .uri("/api/v1/admin/messaging/summary")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.status").isEqualTo("admin-messaging-ok");
+
+        RecordedRequest recordedRequest = WALLET_SERVICE.takeRequest(1, TimeUnit.SECONDS);
+
+        assertThat(recordedRequest).isNotNull();
+        assertThat(recordedRequest.getPath()).isEqualTo("/api/v1/admin/messaging/summary");
+        assertThat(recordedRequest.getHeader("X-User-Id")).isEqualTo("system-1");
+        assertThat(recordedRequest.getHeader("X-User-Role")).isEqualTo("SYSTEM");
+        assertThat(recordedRequest.getHeader("X-Gateway-Token"))
+                .isEqualTo(GatewayIntegrationTestSupport.TEST_GATEWAY_SECRET);
+    }
+
+    @Test
+    void adminMessagingRouteRejectsMissingAuthorizationHeader() throws Exception {
+        webTestClient.get()
+                .uri("/api/v1/admin/messaging/summary")
+                .exchange()
+                .expectStatus().isUnauthorized();
+
+        assertThat(WALLET_SERVICE.takeRequest(250, TimeUnit.MILLISECONDS)).isNull();
+    }
+    
 }

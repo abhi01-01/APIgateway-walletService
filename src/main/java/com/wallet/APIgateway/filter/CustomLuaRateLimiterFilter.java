@@ -8,6 +8,7 @@ import org.springframework.cloud.gateway.filter.factory.AbstractGatewayFilterFac
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -47,6 +48,11 @@ public class CustomLuaRateLimiterFilter extends AbstractGatewayFilterFactory<Cus
         boolean rateLimiterEnabled = normalizeConfig(config);
 
         return (exchange, chain) -> {
+
+            if (exchange.getRequest().getMethod() == HttpMethod.OPTIONS) {
+                return chain.filter(exchange);
+            }
+            
             if (!rateLimiterEnabled) {
                 return chain.filter(exchange);
             }
