@@ -42,7 +42,9 @@ public final class GatewayIntegrationTestSupport {
                                                 MockWebServer walletService) {
         registry.add("spring.data.redis.host", redis::getHost);
         registry.add("spring.data.redis.port", redis::getFirstMappedPort);
+        registry.add("spring.data.redis.ssl.enabled", () -> false);
         registry.add("application.security.jwt.secret-key", () -> TEST_JWT_SECRET);
+        registry.add("application.cors.allowed-origins[0]", () -> "http://localhost:3000");
         registry.add("application.rate-limit.trusted-proxies[0]", () -> "127.0.0.1/32");
         registry.add("application.rate-limit.trusted-proxies[1]", () -> "::1/128");
         registry.add("WALLET_SERVICE_URL", () -> walletService.url("/").toString());

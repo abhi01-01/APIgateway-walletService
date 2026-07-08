@@ -66,15 +66,31 @@ spring:
                     fallbackUri: forward:/fallback/walletService
             # Route 4. Admin Messaging / Kafka Observability APIs
             - id: wallet-admin-messaging-route
-              uri: ${WALLET_SERVICE_URL:http://localhost:8081}
+              uri: ${WALLET_SERVICE_URL:http://wallet-service:8081}
               predicates:
                 - Path=/api/v1/admin/messaging/**
               filters:
                 - name: CustomLuaRateLimiterFilter
                   args:
-                    keyPrefix: "rate_limit:admin_messaging"
+                    keyPrefix: "rate_limit:admin_messaging:"
                     capacity: 10
                     replenishRate: 3
+                - AuthenticationFilter
+                - name: CircuitBreaker
+                  args:
+                    name: walletServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/walletService
+            # Admin Routes
+            - id: wallet-admin-users-route
+              uri: ${WALLET_SERVICE_URL:http://wallet-service:8081}
+              predicates:
+                - Path=/api/v1/admin/users/**
+              filters:
+                - name: CustomLuaRateLimiterFilter
+                  args:
+                    keyPrefix: "rate_limit:admin_users:"
+                    capacity: 20
+                    replenishRate: 5
                 - AuthenticationFilter
                 - name: CircuitBreaker
                   args:
@@ -85,14 +101,26 @@ spring:
               uri: ${WALLET_SERVICE_URL:http://wallet-service:8081}
               predicates:
                 - Path=/api/v1/webhooks/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: walletServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/walletService
             # Route 6: The OpenAPI Data Pipeline
             - id: wallet-openapi-route
               uri: ${WALLET_SERVICE_URL:http://wallet-service:8081}
               predicates:
                 - Path=/wallet-service/v3/api-docs/**
               filters:
+                - name: CircuitBreaker
+                  args:
+                    name: walletServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/walletService
+                # Strips the /wallet-service/ namespace before forwarding to 8081
                 - StripPrefix=1
 application:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS}
   security:
     jwt:
       secret-key: ${JWT_SECRET}
