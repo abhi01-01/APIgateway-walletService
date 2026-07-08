@@ -5,7 +5,6 @@ spring:
     name: api-gateway
   data:
     redis:
-#      host: localhost           # Phase-1 (Active feature development)
       host: wallet-redis-d     # Phase-2 (Full Containerization)
       port: 6379
   cloud:
@@ -13,8 +12,10 @@ spring:
       server:
         webflux:
           # Automatically appends the secret token to EVERY outbound request to the internal service
+          # Clean up duplicate CORS headers.
           default-filters:
             - AddRequestHeader=X-Gateway-Token, ${GATEWAY_INTERNAL_SECRET:default-edge-secret-string-123}
+            - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
           routes:
             # Route 1: Auth Endpoints (Verify OTP, Login, etc.)
             - id: wallet-auth-route
@@ -72,9 +73,25 @@ spring:
               filters:
                 - name: CustomLuaRateLimiterFilter
                   args:
-                    keyPrefix: "rate_limit:admin_messaging"
+                    keyPrefix: "rate_limit:admin_messaging:"
                     capacity: 10
                     replenishRate: 3
+                - AuthenticationFilter
+                - name: CircuitBreaker
+                  args:
+                    name: walletServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/walletService
+            # Admin Routes
+            - id: wallet-admin-users-route
+              uri: ${WALLET_SERVICE_URL:http://localhost:8081}
+              predicates:
+                - Path=/api/v1/admin/users/**
+              filters:
+                - name: CustomLuaRateLimiterFilter
+                  args:
+                    keyPrefix: "rate_limit:admin_users:"
+                    capacity: 20
+                    replenishRate: 5
                 - AuthenticationFilter
                 - name: CircuitBreaker
                   args:
@@ -85,12 +102,21 @@ spring:
               uri: ${WALLET_SERVICE_URL:http://localhost:8081}
               predicates:
                 - Path=/api/v1/webhooks/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    name: walletServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/walletService
             # Route 6. The OpenAPI Data Pipeline
             - id: wallet-openapi-route
               uri: ${WALLET_SERVICE_URL:http://localhost:8081}
               predicates:
                 - Path=/wallet-service/v3/api-docs/**
               filters:
+                - name: CircuitBreaker
+                  args:
+                    name: walletServiceCircuitBreaker
+                    fallbackUri: forward:/fallback/walletService
                 # Strips the /wallet-service/ namespace before forwarding to 8081
                 - StripPrefix=1
 springdoc:
@@ -105,11 +131,13 @@ springdoc:
         url: /wallet-service/v3/api-docs
 
 application:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001}
   security:
     jwt:
       secret-key: ${JWT_SECRET}
   rate-limit:
-    trusted-proxies: ${TRUSTED_PROXY_CIDRS:}
+    trusted-proxies: ${TRUSTED_PROXY_CIDRS:127.0.0.1/32,::1/128}
 
 resilience4j:
   circuitbreaker:
@@ -117,6 +145,8 @@ resilience4j:
       walletServiceCircuitBreaker:
         slidingWindowSize: 10
         failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 5
 
   timelimiter:
     instances:

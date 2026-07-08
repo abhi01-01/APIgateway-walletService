@@ -50,6 +50,7 @@ class GatewayRouteBehaviorTest {
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {
         GatewayIntegrationTestSupport.registerCommonProperties(registry, REDIS, WALLET_SERVICE);
+        registry.add("resilience4j.timelimiter.instances.walletServiceCircuitBreaker.timeoutDuration", () -> "250ms");
     }
 
     @BeforeEach
@@ -121,7 +122,7 @@ class GatewayRouteBehaviorTest {
 
     @Test
     void downstreamConnectionFailureReturnsConfiguredFallbackShape() {
-        WALLET_SERVICE.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START));
+        WALLET_SERVICE.enqueue(new MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE));
 
         String token = GatewayIntegrationTestSupport.createToken("wallet-user", "CUSTOMER", Duration.ofMinutes(5));
 

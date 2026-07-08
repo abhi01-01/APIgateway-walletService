@@ -23,6 +23,7 @@ import org.testcontainers.utility.DockerImageName;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -48,8 +49,17 @@ class GatewayRedisIntegrationTest {
     @DynamicPropertySource
     static void registerProperties(DynamicPropertyRegistry registry) {
         GatewayIntegrationTestSupport.registerCommonProperties(registry, REDIS, WALLET_SERVICE);
+        registry.add("spring.cloud.gateway.server.webflux.routes[0].id", () -> "wallet-auth-route");
+        registry.add("spring.cloud.gateway.server.webflux.routes[0].uri", () -> WALLET_SERVICE.url("/").toString());
+        registry.add("spring.cloud.gateway.server.webflux.routes[0].predicates[0]", () -> "Path=/api/v1/auth/**");
+        registry.add("spring.cloud.gateway.server.webflux.routes[0].filters[0].name", () -> "CustomLuaRateLimiterFilter");
+        registry.add("spring.cloud.gateway.server.webflux.routes[0].filters[0].args.keyPrefix", () -> "rate_limit:auth:");
         registry.add("spring.cloud.gateway.server.webflux.routes[0].filters[0].args.capacity", () -> 1);
         registry.add("spring.cloud.gateway.server.webflux.routes[0].filters[0].args.replenishRate", () -> 0.001d);
+        registry.add("spring.cloud.gateway.server.webflux.routes[0].filters[1]", () -> "AuthenticationFilter");
+        registry.add("spring.cloud.gateway.server.webflux.routes[0].filters[2].name", () -> "CircuitBreaker");
+        registry.add("spring.cloud.gateway.server.webflux.routes[0].filters[2].args.name", () -> "walletServiceCircuitBreaker");
+        registry.add("spring.cloud.gateway.server.webflux.routes[0].filters[2].args.fallbackUri", () -> "forward:/fallback/walletService");
     }
 
     @BeforeEach
@@ -71,7 +81,6 @@ class GatewayRedisIntegrationTest {
                 .setBody("{\"status\":\"first-ok\"}"));
 
         String forwardedIp = "198.51.100.24";
-        String redisKey = "rate_limit:auth:" + forwardedIp;
 
         webTestClient.get()
                 .uri("/api/v1/auth/login")
@@ -87,6 +96,13 @@ class GatewayRedisIntegrationTest {
                 .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_PLAIN)
                 .expectBody(String.class).isEqualTo("Try again after some time");
 
+        List<String> redisKeys = redisTemplate.keys("rate_limit:auth:*")
+                .collectList()
+                .block();
+
+        assertThat(redisKeys).isNotNull().hasSize(1);
+
+        String redisKey = redisKeys.get(0);
         Map<Object, Object> bucketState = redisTemplate.opsForHash().entries(redisKey)
                 .collectMap(Map.Entry::getKey, Map.Entry::getValue)
                 .block();

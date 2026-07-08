@@ -12,16 +12,30 @@ import java.util.List;
 @Configuration
 public class CorsConfig {
 
+    private final CorsProperties corsProperties;
+
+    public CorsConfig(CorsProperties corsProperties) {
+        this.corsProperties = corsProperties;
+    }
+
     @Bean
     public CorsWebFilter corsWebFilter(){
         CorsConfiguration config = new CorsConfiguration();
 
-        config.setAllowedOrigins(List.of(
-                "http://localhost:3000",
-                "http://localhost:3001",
-                "http://127.0.0.1:3000",
-                "http://127.0.0.1:3001"
-        ));
+        List<String> allowedOrigins = corsProperties.getAllowedOrigins().stream()
+                .map(String::trim)
+                .filter(origin -> !origin.isEmpty())
+                .toList();
+
+        if (allowedOrigins.isEmpty()) {
+            throw new IllegalStateException("application.cors.allowed-origins must contain at least one origin");
+        }
+
+        if (allowedOrigins.contains("*")) {
+            throw new IllegalStateException("Wildcard CORS origins are not allowed when credentials are enabled");
+        }
+
+        config.setAllowedOrigins(allowedOrigins);
 
         config.setAllowedMethods(List.of(
                 "GET",
