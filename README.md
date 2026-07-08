@@ -4,23 +4,23 @@ The API Gateway is the edge service for the wallet platform. It receives externa
 
 This project is built on Spring Boot 3.5.14, Spring Cloud Gateway WebFlux, Reactive Redis, JJWT, Resilience4j, Actuator, and Springdoc OpenAPI.
 
-### <span style="color:Green">Project can be viewed at this path - [`https://wallet-api-gateway.onrender.com/swagger-ui/index.html`](https://wallet-api-gateway.onrender.com/swagger-ui/index.html) <sub>exposed deliberately</sub> </span>
-
-
 ## 🐵 Entire Project Visibility at One Glance
 
-This is the complete project map in one diagram. It connects the repository files to the Spring Boot startup path, runtime request path, Redis state, Wallet Service proxy path, local gateway endpoints, Docker image, and GitHub Actions workflows.
+This is the complete project map in one diagram. It connects repository files to Spring Boot startup, runtime request flow, Redis state, Wallet Service proxying, fallbacks, Docker image delivery, and quality workflows.
 
 ```mermaid
-flowchart TB
+%%{init: {"theme": "base", "flowchart": {"htmlLabels": true, "nodeSpacing": 180, "rankSpacing": 220, "diagramPadding": 80, "curve": "basis", "wrappingWidth": 760}, "themeVariables": {"fontSize": "100px", "fontFamily": "Inter, Arial, sans-serif", "lineColor": "#495057"}} }%%
+flowchart LR
     subgraph repo["Repository"]
+        direction TB
+        repoWidth["&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"]
         pom["pom.xml<br/>Java 21, Spring Boot 3.5.14,<br/>Spring Cloud 2025.0.2,<br/>Gateway WebFlux, Reactive Redis,<br/>JJWT, Resilience4j, Springdoc, Actuator"]
-        appYaml["application.yaml<br/>base routes, Redis host,<br/>JWT secret binding, Springdoc,<br/>circuit breaker ids"]
-        prodYaml["application-prod.yaml<br/>env-driven Redis and Wallet URL,<br/>Redis SSL, X-Gateway-Token,<br/>production rate limits"]
+        appYaml["application.yaml<br/>base routes, default filters,<br/>Redis host, JWT secret binding,<br/>Springdoc, circuit breaker ids"]
+        prodYaml["application-prod.yaml<br/>env-driven Redis and Wallet URL,<br/>Redis SSL, production rate limits"]
         lua["scripts/token_bucket.lua<br/>atomic Redis token bucket"]
         mainClass["ApGatewayApplication.java<br/>Spring Boot entrypoint"]
         filters["filter package<br/>RouteValidator<br/>CustomLuaRateLimiterFilter<br/>AuthenticationFilter"]
-        config["config package<br/>ResilienceConfig"]
+        config["config package<br/>CorsConfig<br/>RateLimitProperties<br/>ResilienceConfig"]
         controllers["controller package<br/>GatewayInfoController<br/>FallbackController"]
         util["util package<br/>JwtUtil"]
         test["ApIgatewayApplicationTests.java<br/>context load test"]
@@ -31,14 +31,17 @@ flowchart TB
     end
 
     subgraph boot["Application Boot"]
+        direction TB
+        bootWidth["&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"]
         bootStart["JVM starts api-gateway.jar"]
         spring["Spring Boot autoconfiguration"]
         webflux["Reactive WebFlux runtime<br/>non-blocking request pipeline"]
-        routeTable["Gateway route table<br/>5 Wallet Service routes"]
+        routeTable["Gateway route table<br/>7 Wallet Service routes"]
         beans["Managed beans<br/>filters, controllers,<br/>Redis template, circuit breaker,<br/>JWT utility"]
     end
 
     subgraph runtime["Runtime Traffic"]
+        direction TB
         client["Client / UI / Partner"]
         root["GET /<br/>gateway status JSON"]
         swagger["GET /swagger-ui.html<br/>gateway-hosted Swagger UI"]
@@ -47,6 +50,8 @@ flowchart TB
         authRoute["/api/v1/auth/**"]
         paymentRoute["/api/v1/payments/**"]
         walletRoute["/api/v1/wallets/**"]
+        adminMessagingRoute["/api/v1/admin/messaging/**"]
+        adminUsersRoute["/api/v1/admin/users/**"]
         webhookRoute["/api/v1/webhooks/**"]
         openApiRoute["/wallet-service/v3/api-docs/**"]
         rateLimit{"CustomLuaRateLimiterFilter<br/>configured on route?"}
@@ -56,26 +61,32 @@ flowchart TB
     end
 
     subgraph security["Security and State"]
-        routeValidator["RouteValidator<br/>public fragments plus teardown exception"]
-        redis[("Redis<br/>rate_limit:* buckets<br/>blacklist:* revoked tokens")]
-        jwt["JwtUtil<br/>verify HMAC JWT<br/>extract subject and ownerType"]
-        headers["Request mutation<br/>X-User-Id<br/>X-User-Role<br/>prod: X-Gateway-Token"]
-        reject401["401 Unauthorized"]
-        reject429["429 Too Many Requests"]
+        direction TB
+        securityWidth["&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"]
+        routeValidator["RouteValidator<br/>public fragments<br/>teardown route exception<br/>OPTIONS bypass support"]
+        redis[("Redis reactive state store<br/>rate_limit:* token buckets<br/>blacklist:* revoked tokens<br/>TTL-backed cleanup")]
+        jwt["JwtUtil<br/>verify HMAC JWT signature<br/>extract subject as user id<br/>extract ownerType as role"]
+        headers["Request mutation<br/>X-User-Id identity header<br/>X-User-Role role header<br/>X-Gateway-Token internal trust header"]
+        reject401["401 Unauthorized<br/>missing, invalid, expired,<br/>or blacklisted JWT"]
+        reject429["429 Too Many Requests<br/>Redis Lua token bucket<br/>request rejected at edge"]
     end
 
     subgraph downstream["Downstream and Fallback"]
-        walletService["Wallet Service<br/>default internal port 8081"]
-        walletDocs["Wallet Service OpenAPI<br/>/v3/api-docs"]
-        fallback["/fallback/walletService<br/>503 controlled degradation JSON"]
-        response["Final client response"]
+        direction TB
+        downstreamWidth["&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"]
+        walletService["Wallet Service<br/>default internal port 8081<br/>receives validated identity headers<br/>owns wallet-domain behavior"]
+        walletDocs["Wallet Service OpenAPI<br/>/v3/api-docs<br/>proxied through gateway namespace<br/>/wallet-service/v3/api-docs"]
+        fallback["/fallback/walletService<br/>503 Service Unavailable<br/>controlled degradation JSON<br/>used by circuit breaker"]
+        response["Final client response<br/>downstream payload,<br/>edge rejection,<br/>or fallback body"]
     end
 
     subgraph delivery["Build and Delivery"]
-        maven["mvn clean package<br/>APIgateway-0.0.1-SNAPSHOT.jar"]
-        image["wallet-api-gateway image<br/>latest and github.sha tags"]
-        dockerHub["Docker Hub registry"]
-        qodana["Qodana quality scan<br/>PR, manual, production push"]
+        direction TB
+        deliveryWidth["&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"]
+        maven["Maven build pipeline<br/>mvn clean package<br/>APIgateway-0.0.1-SNAPSHOT.jar<br/>Java 21 artifact"]
+        image["Distroless runtime image<br/>wallet-api-gateway<br/>latest tag<br/>github.sha immutable tag"]
+        dockerHub["Docker Hub registry<br/>pushed production images<br/>registry build cache<br/>deployment source"]
+        qodana["Qodana quality scan<br/>pull requests<br/>manual workflow dispatch<br/>production branch push"]
     end
 
     pom --> spring
@@ -101,15 +112,19 @@ flowchart TB
     routeMatch --> authRoute
     routeMatch --> paymentRoute
     routeMatch --> walletRoute
+    routeMatch --> adminMessagingRoute
+    routeMatch --> adminUsersRoute
     routeMatch --> webhookRoute
     routeMatch --> openApiRoute
 
     authRoute --> rateLimit
     paymentRoute --> rateLimit
     walletRoute --> rateLimit
-    webhookRoute --> walletService
+    adminMessagingRoute --> rateLimit
+    adminUsersRoute --> rateLimit
+    webhookRoute --> cb
     openApiRoute --> strip
-    strip --> walletDocs
+    strip --> cb
 
     rateLimit -->|"Redis Lua allowed"| authFilter
     rateLimit -->|"Redis Lua denied"| reject429
@@ -139,18 +154,20 @@ flowchart TB
     maven --> image
     image --> dockerHub
 
-    classDef repoNode fill:#f8f9fa,stroke:#6c757d,color:#212529;
-    classDef bootNode fill:#e8f3ff,stroke:#2271b1,color:#0b3558;
-    classDef runtimeNode fill:#fff4e6,stroke:#d9822b,color:#5f2b00;
-    classDef securityNode fill:#f3e8ff,stroke:#7b2cbf,color:#35115a;
-    classDef downstreamNode fill:#ecfdf3,stroke:#2f9e44,color:#123b1f;
-    classDef deliveryNode fill:#fff0f6,stroke:#c2255c,color:#5c102c;
+    classDef repoNode fill:#f8f9fa,stroke:#6c757d,stroke-width:5px,color:#212529,font-size:100px;
+    classDef bootNode fill:#e8f3ff,stroke:#2271b1,stroke-width:5px,color:#0b3558,font-size:100px;
+    classDef runtimeNode fill:#fff4e6,stroke:#d9822b,stroke-width:5px,color:#5f2b00,font-size:100px;
+    classDef securityNode fill:#f3e8ff,stroke:#7b2cbf,stroke-width:5px,color:#35115a,font-size:100px;
+    classDef downstreamNode fill:#ecfdf3,stroke:#2f9e44,stroke-width:5px,color:#123b1f,font-size:100px;
+    classDef deliveryNode fill:#fff0f6,stroke:#c2255c,stroke-width:5px,color:#5c102c,font-size:100px;
+    classDef widthSpacer fill:transparent,stroke:transparent,color:transparent,font-size:100px;
     class pom,appYaml,prodYaml,lua,mainClass,filters,config,controllers,util,test,docker,ci,qodanaConfig,qodanaSarif repoNode;
     class bootStart,spring,webflux,routeTable,beans bootNode;
-    class client,root,swagger,incoming,routeMatch,authRoute,paymentRoute,walletRoute,webhookRoute,openApiRoute,rateLimit,authFilter,cb,strip runtimeNode;
+    class client,root,swagger,incoming,routeMatch,authRoute,paymentRoute,walletRoute,adminMessagingRoute,adminUsersRoute,webhookRoute,openApiRoute,rateLimit,authFilter,cb,strip runtimeNode;
     class routeValidator,redis,jwt,headers,reject401,reject429 securityNode;
     class walletService,walletDocs,fallback,response downstreamNode;
     class maven,image,dockerHub,qodana deliveryNode;
+    class repoWidth,bootWidth,securityWidth,downstreamWidth,deliveryWidth widthSpacer;
 ```
 
 ### How The Application Works: Step by Step
@@ -158,22 +175,22 @@ flowchart TB
 1. The repository is built as a Java 21 Maven project using Spring Boot 3.5.14 and Spring Cloud 2025.0.2.
 2. `ApGatewayApplication` starts the Spring Boot application and lets auto-configuration assemble the WebFlux gateway runtime.
 3. Spring loads `application.yaml` by default and imports `.env` through `optional:file:.env[.properties]`.
-4. When `SPRING_PROFILES_ACTIVE=prod` is enabled, `application-prod.yaml` overrides infrastructure values with environment-driven Redis, Wallet Service, SSL, and gateway-token configuration.
+4. When `SPRING_PROFILES_ACTIVE=prod` is enabled, `application-prod.yaml` overrides infrastructure values with environment-driven Redis, Wallet Service, Redis SSL, and production rate-limit configuration.
 5. The gateway creates route definitions from `spring.cloud.gateway.server.webflux.routes`.
-6. Spring registers custom beans: `AuthenticationFilter`, `CustomLuaRateLimiterFilter`, `RouteValidator`, `JwtUtil`, `ResilienceConfig`, `GatewayInfoController`, and `FallbackController`.
+6. Spring registers custom beans: `AuthenticationFilter`, `CustomLuaRateLimiterFilter`, `ClientIpResolver`, `RouteValidator`, `JwtUtil`, `CorsConfig`, `RateLimitProperties`, `ResilienceConfig`, `GatewayInfoController`, and `FallbackController`.
 7. The gateway starts listening on Spring Boot's configured port, normally `8080`.
 8. A request to `/` is handled inside the gateway by `GatewayInfoController` and returns edge status JSON.
 9. A request to `/swagger-ui.html` is handled by Springdoc and configured to load Wallet Service docs through `/wallet-service/v3/api-docs`.
 10. A request matching `/wallet-service/v3/api-docs/**` is proxied to Wallet Service after `StripPrefix=1` removes the `/wallet-service` namespace.
 11. A business API request enters the Spring Cloud Gateway WebFlux pipeline and is matched against route path predicates.
-12. Auth traffic matches `/api/v1/auth/**`; payment traffic matches `/api/v1/payments/**`; wallet-domain traffic matches `/api/v1/wallets/**`; webhook traffic matches `/api/v1/webhooks/**`.
+12. Auth traffic matches `/api/v1/auth/**`; payment traffic matches `/api/v1/payments/**`; wallet-domain traffic matches `/api/v1/wallets/**`; admin messaging traffic matches `/api/v1/admin/messaging/**`; admin user traffic matches `/api/v1/admin/users/**`; webhook traffic matches `/api/v1/webhooks/**`.
 13. Routes with `CustomLuaRateLimiterFilter` build a Redis key from the route prefix and client IP.
 14. The rate limiter resolves the client IP through `ClientIpResolver`: it trusts `X-Forwarded-For` only when the immediate caller matches a configured trusted proxy or load-balancer source IP or CIDR; otherwise it falls back to `remoteAddress`, then to `unknown`.
 15. The rate limiter executes `scripts/token_bucket.lua` in Redis so token refill, consumption, persistence, and TTL update happen atomically.
 16. If Redis returns `0`, the gateway stops the request at the edge with HTTP `429` and the body `Try again after some time`.
 17. If Redis fails during rate limiting, the filter logs the error and fails open, allowing the request to continue.
 18. Routes with `AuthenticationFilter` ask `RouteValidator` whether the path is secured.
-19. `RouteValidator` treats `/api/v1/auth/`, `/api/v1/webhooks/`, `/v3/api-docs`, and `/swagger-ui` as public fragments.
+19. `RouteValidator` treats `/api/v1/auth/`, `/api/v1/webhooks/`, `/wallet-service/v3/api-docs`, `/v3/api-docs`, `/swagger-ui`, `/swagger-ui.html`, and `/webjars/` as public fragments.
 20. `RouteValidator` explicitly makes `/api/v1/auth/logout` and `/api/v1/auth/close-account` secured when the auth filter is present on that route.
 21. Secured requests must include an `Authorization` header with a bearer token.
 22. `AuthenticationFilter` checks Redis for `blacklist:<token>` before cryptographic validation.
@@ -182,13 +199,13 @@ flowchart TB
 25. The gateway extracts the JWT subject as `X-User-Id` and the `ownerType` claim as `X-User-Role`.
 26. Logout and close-account requests are treated as teardown routes; the gateway can extract claims from an expired token for graceful teardown.
 27. For active teardown tokens, the gateway writes `blacklist:<token> = revoked` to Redis with a TTL equal to the token's remaining lifetime.
-28. In the production profile, the gateway also adds `X-Gateway-Token` to every outbound proxied request through a default filter.
+28. Gateway default filters add `X-Gateway-Token` to every outbound proxied request and remove duplicate CORS response headers.
 29. The request enters the `walletServiceCircuitBreaker` before reaching Wallet Service.
 30. If Wallet Service responds within the configured resilience window, the gateway streams the downstream response back to the client.
 31. If Wallet Service times out, fails, or the circuit breaker is open, the gateway internally forwards to `/fallback/walletService`.
 32. `FallbackController` returns HTTP `503` with a consistent degradation JSON body.
 33. Docker builds the project in a Maven Java 21 Alpine builder stage and copies the jar into a non-root Java 21 distroless runtime image.
-34. The production CI workflow builds and pushes `wallet-api-gateway:latest` and `wallet-api-gateway:${github.sha}` to Docker Hub on pushes to the `production` branch.
+34. The production CI workflow builds and pushes `wallet-api-gateway:latest` and `wallet-api-gateway:${github.sha}` to Docker Hub, then calls `DEPLOY_WEBHOOK_URL` on pushes to the `production` branch.
 35. The Qodana workflow runs code quality analysis on pull requests, manual dispatches, and pushes to `production`.
 36. `qodana.yaml` configures the JVM linter for JDK 21, and `qodana.sarif.json` acts as the current SARIF baseline/report artifact.
 
@@ -202,6 +219,7 @@ flowchart TB
 - [Route Catalog](#route-catalog)
 - [Security Model](#security-model)
 - [Rate Limiting Model](#rate-limiting-model)
+- [CORS Model](#cors-model)
 - [Resilience and Fallbacks](#resilience-and-fallbacks)
 - [Configuration Profiles](#configuration-profiles)
 - [OpenAPI and Swagger Flow](#openapi-and-swagger-flow)
@@ -218,6 +236,8 @@ The gateway owns the platform edge responsibilities:
 - Route external API traffic to the internal Wallet Service.
 - Keep public endpoints public while enforcing JWT validation on secured endpoints.
 - Add trusted identity headers for downstream services after JWT verification.
+- Add the internal `X-Gateway-Token` header to outbound proxied requests.
+- Clean duplicate CORS response headers at the gateway edge.
 - Reject blacklisted tokens at the edge.
 - Blacklist active teardown tokens during logout and close-account flows.
 - Rate limit sensitive traffic using a Redis-backed token bucket.
@@ -266,35 +286,41 @@ flowchart LR
 | Component              | File                                                                         | Responsibility                                                                                                  |
 |------------------------|------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------|
 | Spring Boot entrypoint | `src/main/java/com/wallet/APIgateway/ApGatewayApplication.java`              | Boots the WebFlux gateway application.                                                                          |
-| Route configuration    | `src/main/resources/application.yaml`                                        | Base route table, Redis host, Springdoc config, JWT secret binding, resilience values.                          |
-| Production overrides   | `src/main/resources/application-prod.yaml`                                   | Environment-driven Redis, Wallet Service URL, TLS Redis, internal gateway token header, trusted proxy CIDRs, and production rate limits. |
+| Route configuration    | `src/main/resources/application.yaml`                                        | Base route table, default gateway filters, Redis host, Springdoc config, JWT secret binding, resilience values. |
+| Production overrides   | `src/main/resources/application-prod.yaml`                                   | Environment-driven Redis, Wallet Service URL, TLS Redis, trusted proxy CIDRs, and production rate limits.       |
 | JWT filter             | `src/main/java/com/wallet/APIgateway/filter/AuthenticationFilter.java`       | Validates bearer tokens, checks Redis blacklist, injects identity headers, blacklists teardown tokens.          |
 | Route validator        | `src/main/java/com/wallet/APIgateway/filter/RouteValidator.java`             | Defines public endpoint patterns and forces teardown routes through security when the auth filter is attached.  |
 | Custom rate limiter    | `src/main/java/com/wallet/APIgateway/filter/CustomLuaRateLimiterFilter.java` | Executes a Redis Lua token bucket per client IP.                                                                |
 | Client IP resolver     | `src/main/java/com/wallet/APIgateway/filter/ClientIpResolver.java`           | Resolves caller IPs safely by trusting `X-Forwarded-For` only from configured proxy source IPs or CIDRs.       |
+| CORS config            | `src/main/java/com/wallet/APIgateway/config/CorsConfig.java`                 | Registers the reactive CORS policy for browser clients using configured allowed origins.                        |
+| CORS properties        | `src/main/java/com/wallet/APIgateway/config/CorsProperties.java`             | Binds `application.cors.allowed-origins` from `CORS_ALLOWED_ORIGINS`.                                           |
 | Rate-limit properties  | `src/main/java/com/wallet/APIgateway/config/RateLimitProperties.java`        | Binds `application.rate-limit.trusted-proxies` so proxy trust rules are configurable per environment.           |
 | Lua script             | `src/main/resources/scripts/token_bucket.lua`                                | Performs atomic token bucket read, refill, allow/deny, and TTL update inside Redis.                             |
 | Resilience config      | `src/main/java/com/wallet/APIgateway/config/ResilienceConfig.java`           | Configures the reactive Resilience4j circuit breaker and timeout.                                               |
 | Gateway info endpoint  | `src/main/java/com/wallet/APIgateway/controller/GatewayInfoController.java`  | Returns root gateway status from `/`.                                                                           |
 | Fallback endpoint      | `src/main/java/com/wallet/APIgateway/controller/FallbackController.java`     | Returns a 503 JSON response when Wallet Service is degraded or unavailable.                                     |
-| Route behavior tests   | `src/test/java/com/wallet/APIgateway/GatewayRouteBehaviorTest.java`          | Verifies public-route bypass, teardown rejection, header injection, and fallback behavior with `WebTestClient`. |
+| Route behavior tests   | `src/test/java/com/wallet/APIgateway/GatewayRouteBehaviorTest.java`          | Verifies public-route bypass, teardown rejection, header injection, admin messaging security, and fallback behavior with `WebTestClient`. |
 | Redis integration tests| `src/test/java/com/wallet/APIgateway/GatewayRedisIntegrationTest.java`       | Verifies Lua rate-limit state and blacklist TTL behavior against Redis with Testcontainers.                     |
 | Docker image           | `Dockerfile`                                                                 | Builds with Maven and runs on a non-root Java 21 distroless image.                                              |
-| CI/CD workflow         | `.github/workflows/api-gateway-ci.yml`                                       | Builds and pushes Docker images on `production` branch pushes.                                                  |
+| CI/CD workflow         | `.github/workflows/api-gateway-ci.yml`                                       | Builds and pushes Docker images, then calls the production deploy webhook on `production` branch pushes.        |
 
 ## 🐵 Current Project Structure
 
 ```text
 .
 |-- Dockerfile
+|-- env.example
 |-- HELP.md
 |-- README.md
 |-- mvnw
 |-- mvnw.cmd
 |-- pom.xml
+|-- qodana.yaml
+|-- qodana.sarif.json
 |-- .github/
 |   `-- workflows/
-|       `-- api-gateway-ci.yml
+|       |-- api-gateway-ci.yml
+|       `-- qodana_code_quality.yml
 |-- .mvn/
 |   `-- wrapper/
 |       `-- maven-wrapper.properties
@@ -304,6 +330,8 @@ flowchart LR
     |   |   `-- com/wallet/APIgateway/
     |   |       |-- ApGatewayApplication.java
     |   |       |-- config/
+    |   |       |   |-- CorsConfig.java
+    |   |       |   |-- CorsProperties.java
     |   |       |   |-- RateLimitProperties.java
     |   |       |   `-- ResilienceConfig.java
     |   |       |-- controller/
@@ -420,32 +448,39 @@ spring.cloud.gateway.server.webflux.routes
 
 ### Base profile routes: `application.yaml`
 
-The base profile is currently container-network oriented. It points Redis to `wallet-redis-d:6379` and Wallet Service routes to `http://wallet-service:8081`.
+The base profile points Redis to `wallet-redis-d:6379` and routes Wallet Service traffic through `${WALLET_SERVICE_URL:http://localhost:8081}`.
 
-| Route ID               | Path predicate                   | Upstream URI                 | Filters                                                                | Behavior                                                                                                                    |
-|------------------------|----------------------------------|------------------------------|------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------|
-| `wallet-auth-route`    | `/api/v1/auth/**`                | `http://wallet-service:8081` | `CustomLuaRateLimiterFilter`, `AuthenticationFilter`, `CircuitBreaker` | Auth endpoints are mostly public by `RouteValidator`; logout and close-account become secured when this filter is attached. |
-| `wallet-payment-route` | `/api/v1/payments/**`            | `http://wallet-service:8081` | `CustomLuaRateLimiterFilter`, `AuthenticationFilter`, `CircuitBreaker` | Secured payment traffic with per-IP rate limiting and fallback protection.                                                  |
-| `wallet-domain-route`  | `/api/v1/wallets/**`             | `http://wallet-service:8081` | `CustomLuaRateLimiterFilter`, `AuthenticationFilter`, `CircuitBreaker` | Secured wallet-domain traffic with per-IP rate limiting and fallback protection.                                            |
-| `wallet-webhook-route` | `/api/v1/webhooks/**`            | `http://wallet-service:8081` | none                                                                   | Webhook ingestion bypasses gateway auth and rate limiting.                                                                  |
-| `wallet-openapi-route` | `/wallet-service/v3/api-docs/**` | `http://wallet-service:8081` | `StripPrefix=1`                                                        | Proxies Wallet Service OpenAPI JSON by removing `/wallet-service`.                                                          |
-
-### Production profile routes: `application-prod.yaml`
-
-The production profile uses environment variables and injects an internal trust header into every outbound proxied request:
+Default gateway filters:
 
 ```yaml
 default-filters:
   - AddRequestHeader=X-Gateway-Token, ${GATEWAY_INTERNAL_SECRET:default-edge-secret-string-123}
+  - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
 ```
+
+| Route ID               | Path predicate                   | Upstream URI                 | Filters                                                                | Behavior                                                                                                                    |
+|------------------------|----------------------------------|------------------------------|------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| `wallet-auth-route`    | `/api/v1/auth/**`                | `${WALLET_SERVICE_URL:http://localhost:8081}` | `CustomLuaRateLimiterFilter`, `AuthenticationFilter`, `CircuitBreaker` | Auth endpoints are mostly public by `RouteValidator`; logout and close-account become secured when this filter is attached. |
+| `wallet-payment-route` | `/api/v1/payments/**`            | `${WALLET_SERVICE_URL:http://localhost:8081}` | `CustomLuaRateLimiterFilter`, `AuthenticationFilter`, `CircuitBreaker` | Secured payment traffic with per-IP rate limiting and fallback protection.                                                  |
+| `wallet-domain-route`  | `/api/v1/wallets/**`             | `${WALLET_SERVICE_URL:http://localhost:8081}` | `CustomLuaRateLimiterFilter`, `AuthenticationFilter`, `CircuitBreaker` | Secured wallet-domain traffic with per-IP rate limiting and fallback protection.                                            |
+| `wallet-admin-messaging-route` | `/api/v1/admin/messaging/**` | `${WALLET_SERVICE_URL:http://localhost:8081}` | `CustomLuaRateLimiterFilter`, `AuthenticationFilter`, `CircuitBreaker` | Secured admin messaging and Kafka observability traffic. |
+| `wallet-admin-users-route` | `/api/v1/admin/users/**` | `${WALLET_SERVICE_URL:http://localhost:8081}` | `CustomLuaRateLimiterFilter`, `AuthenticationFilter`, `CircuitBreaker` | Secured admin user-management traffic. |
+| `wallet-webhook-route` | `/api/v1/webhooks/**`            | `${WALLET_SERVICE_URL:http://localhost:8081}` | `CircuitBreaker`                                                       | Webhook ingestion bypasses gateway auth and rate limiting while retaining fallback protection.                              |
+| `wallet-openapi-route` | `/wallet-service/v3/api-docs/**` | `${WALLET_SERVICE_URL:http://localhost:8081}` | `CircuitBreaker`, `StripPrefix=1`                                      | Proxies Wallet Service OpenAPI JSON by removing `/wallet-service`.                                                          |
+
+### Production profile routes: `application-prod.yaml`
+
+The production profile uses environment variables for Redis and Wallet Service connectivity. It inherits the default gateway filters from `application.yaml`.
 
 | Route ID               | Path predicate                   | Upstream URI                                       | Filters                                                                | Production limits                 |
 |------------------------|----------------------------------|----------------------------------------------------|------------------------------------------------------------------------|-----------------------------------|
 | `wallet-auth-route`    | `/api/v1/auth/**`                | `${WALLET_SERVICE_URL:http://wallet-service:8081}` | `CustomLuaRateLimiterFilter`, `AuthenticationFilter`, `CircuitBreaker` | `capacity=10`, `replenishRate=5`  |
 | `wallet-payment-route` | `/api/v1/payments/**`            | `${WALLET_SERVICE_URL:http://wallet-service:8081}` | `AuthenticationFilter`, `CustomLuaRateLimiterFilter`, `CircuitBreaker` | `capacity=5`, `replenishRate=2`   |
 | `wallet-domain-route`  | `/api/v1/wallets/**`             | `${WALLET_SERVICE_URL:http://wallet-service:8081}` | `AuthenticationFilter`, `CustomLuaRateLimiterFilter`, `CircuitBreaker` | `capacity=15`, `replenishRate=5`  |
-| `wallet-webhook-route` | `/api/v1/webhooks/**`            | `${WALLET_SERVICE_URL:http://wallet-service:8081}` | none                                                                   | No gateway auth or rate limiting. |
-| `wallet-openapi-route` | `/wallet-service/v3/api-docs/**` | `${WALLET_SERVICE_URL:http://wallet-service:8081}` | `StripPrefix=1`                                                        | No rate limiting.                 |
+| `wallet-admin-messaging-route` | `/api/v1/admin/messaging/**` | `${WALLET_SERVICE_URL:http://wallet-service:8081}` | `CustomLuaRateLimiterFilter`, `AuthenticationFilter`, `CircuitBreaker` | `capacity=10`, `replenishRate=3`  |
+| `wallet-admin-users-route` | `/api/v1/admin/users/**` | `${WALLET_SERVICE_URL:http://wallet-service:8081}` | `CustomLuaRateLimiterFilter`, `AuthenticationFilter`, `CircuitBreaker` | `capacity=20`, `replenishRate=5`  |
+| `wallet-webhook-route` | `/api/v1/webhooks/**`            | `${WALLET_SERVICE_URL:http://wallet-service:8081}` | `CircuitBreaker`                                                       | No gateway auth or rate limiting. |
+| `wallet-openapi-route` | `/wallet-service/v3/api-docs/**` | `${WALLET_SERVICE_URL:http://wallet-service:8081}` | `CircuitBreaker`, `StripPrefix=1`                                      | No rate limiting.                 |
 
 
 ### Local gateway-owned endpoints
@@ -465,8 +500,11 @@ default-filters:
 ```text
 /api/v1/auth/
 /api/v1/webhooks/
+/wallet-service/v3/api-docs
 /v3/api-docs
 /swagger-ui
+/swagger-ui.html
+/webjars/
 ```
 
 There is one explicit exception: when `AuthenticationFilter` is present on the matched route, paths containing `/api/v1/auth/logout` or `/api/v1/auth/close-account` are forced to be secured.
@@ -609,6 +647,8 @@ Examples:
 rate_limit:auth:203.0.113.10
 rate_limit:payments:203.0.113.10
 rate_limit:wallets:203.0.113.10
+rate_limit:admin_messaging:203.0.113.10
+rate_limit:admin_users:203.0.113.10
 ```
 
 ### Lua token bucket internals
@@ -642,9 +682,13 @@ flowchart TB
 | Base    | Auth     | `rate_limit:auth:`     | 3        | 1 token/sec    |
 | Base    | Payments | `rate_limit:payments:` | 3        | 1 token/sec    |
 | Base    | Wallets  | `rate_limit:wallets:`  | 3        | 1 token/sec    |
+| Base    | Admin messaging | `rate_limit:admin_messaging:` | 10 | 3 tokens/sec |
+| Base    | Admin users | `rate_limit:admin_users:` | 20 | 5 tokens/sec |
 | Prod    | Auth     | `rate_limit:auth:`     | 10       | 5 tokens/sec   |
 | Prod    | Payments | `rate_limit:payments:` | 5        | 2 tokens/sec   |
 | Prod    | Wallets  | `rate_limit:wallets:`  | 15       | 5 tokens/sec   |
+| Prod    | Admin messaging | `rate_limit:admin_messaging:` | 10 | 3 tokens/sec |
+| Prod    | Admin users | `rate_limit:admin_users:` | 20 | 5 tokens/sec |
 
 ### Rate-limit failure behavior
 
@@ -656,13 +700,29 @@ Rate limiter failed -> log warning -> allow request to continue
 
 That protects platform availability, but it means Redis outages temporarily disable gateway rate limiting.
 
+## 🐵 CORS Model
+
+`CorsConfig` registers a reactive CORS policy for all gateway paths. Origins are bound from `application.cors.allowed-origins`, which maps to `CORS_ALLOWED_ORIGINS`.
+
+| Setting | Value |
+|---------|-------|
+| Base allowed origins | `${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001}` |
+| Production allowed origins | `${CORS_ALLOWED_ORIGINS}` |
+| Allowed methods | `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS` |
+| Allowed headers | `*` |
+| Exposed headers | `Authorization`, `Content-Type` |
+| Credentials | Enabled |
+| Max age | `3600` seconds |
+
+`CORS_ALLOWED_ORIGINS` is a comma-separated list of exact browser origins. Wildcard origins are rejected because credentials are enabled. `AuthenticationFilter` and `CustomLuaRateLimiterFilter` bypass `OPTIONS` requests. `DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin` keeps gateway and downstream CORS headers from being duplicated in responses.
+
 ## 🐵 Resilience and Fallbacks
 
-The gateway binds all protected Wallet Service calls to `walletServiceCircuitBreaker`.
+The gateway binds routed Wallet Service calls to `walletServiceCircuitBreaker`.
 
 ### Circuit breaker configuration
 
-Defined in `ResilienceConfig` and repeated partly in YAML:
+Defined in YAML and applied by `ResilienceConfig`:
 
 | Setting                   | Value                             |
 |---------------------------|-----------------------------------|
@@ -717,14 +777,16 @@ The base config imports `.env` and expects:
 JWT_SECRET=<base64 jwt secret>
 ```
 
+`env.example` contains the supported environment variable names without secret values.
+
 Current base service addresses:
 
 | Property           | Current base value                           |
 |--------------------|----------------------------------------------|
 | Redis host         | `wallet-redis-d`                             |
 | Redis port         | `6379`                                       |
-| Wallet Service URI | `http://wallet-service:8081`                 |
-| Gateway port       | Spring Boot default `8080` unless overridden |
+| Wallet Service URI | `${WALLET_SERVICE_URL:http://localhost:8081}` |
+| Gateway port       | `${SERVER_PORT:8080}`                        |
 
 
 ### Production configuration: `application-prod.yaml`
@@ -738,7 +800,9 @@ The production profile keeps the same logical routes but externalizes infrastruc
 | `REDIS_PORT`              | `6379`                           | Redis port.                                              |
 | `REDIS_PASSWORD`          | empty                            | Redis password, if required.                             |
 | `WALLET_SERVICE_URL`      | `http://wallet-service:8081`     | Wallet Service upstream URL.                             |
+| `CORS_ALLOWED_ORIGINS`    | none                             | Required comma-separated browser origins for production CORS. |
 | `GATEWAY_INTERNAL_SECRET` | `default-edge-secret-string-123` | Value added as `X-Gateway-Token` to downstream requests. |
+| `TRUSTED_PROXY_CIDRS`     | empty                            | Trusted proxy CIDRs or IPs for `X-Forwarded-For`.        |
 | `SERVER_PORT`             | `8080` by Spring Boot default    | Optional gateway port override.                          |
 
 Production Redis SSL is enabled:
@@ -777,7 +841,7 @@ sequenceDiagram
     G-->>B: Swagger UI
     B->>G: GET /wallet-service/v3/api-docs
     G->>G: Match wallet-openapi-route
-    G->>G: StripPrefix=1
+    G->>G: Apply circuit breaker and StripPrefix=1
     G->>W: GET /v3/api-docs
     W-->>G: OpenAPI JSON
     G-->>B: OpenAPI JSON
@@ -833,21 +897,22 @@ target/APIgateway-0.0.1-SNAPSHOT.jar
 ### Run with the base profile
 
 ```bash
-JWT_SECRET=<base64-secret> ./mvnw spring-boot:run
+JWT_SECRET=<base64-secret> \
+WALLET_SERVICE_URL=http://localhost:8081 \
+./mvnw spring-boot:run
 ```
 
-Because the active base configuration points to container DNS names, this works cleanly when `wallet-redis-d` and `wallet-service` resolve from the runtime environment.
+The active base configuration points Redis to `wallet-redis-d` and Wallet Service to `${WALLET_SERVICE_URL:http://localhost:8081}`.
 
 For direct local JVM development, override infrastructure addresses explicitly:
 
 ```bash
 JWT_SECRET=<base64-secret> \
+WALLET_SERVICE_URL=http://localhost:8081 \
 SPRING_DATA_REDIS_HOST=localhost \
 SPRING_DATA_REDIS_PORT=6379 \
 ./mvnw spring-boot:run
 ```
-
-The Wallet Service route URIs in the base profile are currently hardcoded to `http://wallet-service:8081`. For pure localhost routing, either use the production profile with `WALLET_SERVICE_URL`, run with container DNS, or adjust the base route URIs for the local session.
 
 ### Run with the production profile
 
@@ -858,6 +923,7 @@ REDIS_HOST=<redis-host> \
 REDIS_PORT=6379 \
 REDIS_PASSWORD=<redis-password-if-any> \
 WALLET_SERVICE_URL=http://wallet-service:8081 \
+CORS_ALLOWED_ORIGINS=https://your-frontend-domain.com \
 GATEWAY_INTERNAL_SECRET=<internal-shared-secret> \
 TRUSTED_PROXY_CIDRS=10.0.0.0/8,192.168.0.0/16 \
 ./mvnw spring-boot:run
@@ -921,8 +987,11 @@ docker run --rm -p 8080:8080 \
   -e JWT_SECRET=<base64-secret> \
   -e REDIS_HOST=<redis-host> \
   -e REDIS_PORT=6379 \
+  -e REDIS_PASSWORD=<redis-password-if-any> \
   -e WALLET_SERVICE_URL=http://wallet-service:8081 \
+  -e CORS_ALLOWED_ORIGINS=https://your-frontend-domain.com \
   -e GATEWAY_INTERNAL_SECRET=<internal-shared-secret> \
+  -e TRUSTED_PROXY_CIDRS=10.0.0.0/8 \
   wallet-api-gateway:local
 ```
 
@@ -949,7 +1018,10 @@ flowchart LR
     image --> pushLatest["Push :latest"]
     image --> pushSha["Push :github.sha"]
     image --> cache["Update registry build cache"]
+    cache --> deploy["POST DEPLOY_WEBHOOK_URL"]
 ```
+
+After the image push and cache update, the workflow posts to `${{ secrets.DEPLOY_WEBHOOK_URL }}` to trigger production deployment.
 
 Published tags:
 
@@ -995,7 +1067,7 @@ flowchart LR
 Security assumptions:
 
 - `JWT_SECRET` is shared only between trusted services.
-- Wallet Service should trust `X-User-Id` and `X-User-Role` only from the gateway path, not from public traffic.
+- Wallet Service trusts `X-User-Id` and `X-User-Role` only from the gateway path, not from public traffic.
 - In production, `X-Gateway-Token` gives Wallet Service an additional way to verify that a request came through the gateway.
 - `X-Forwarded-For` is used for rate-limit identity only when the immediate caller IP is listed in `application.rate-limit.trusted-proxies`; otherwise the gateway ignores the header and uses the TCP remote address.
 
@@ -1038,5 +1110,4 @@ flowchart TB
     resilience --> degraded["Return controlled 503 fallback"]
 ```
 
-The gateway is intentionally thin on business logic. It makes edge decisions quickly, pass only trusted context downstream, and let Wallet Service own wallet-domain behavior.
-
+The gateway is intentionally thin on business logic. It makes edge decisions quickly, passes only trusted context downstream, and lets Wallet Service own wallet-domain behavior.
